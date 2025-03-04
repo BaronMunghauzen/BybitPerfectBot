@@ -22,8 +22,8 @@ BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET")
 
 # Константы
 TIMEFRAME = 15  # Таймфрейм в минутах
-CONTRACTS = ['WIFUSDT', 'ARKUSDT', 'SLERFUSDT', 'MATICUSDT', 'ATAUSDT', 'ADAUSDT', 'DEGENUSDT', 'ARUSDT',
-             'MOVRUSDT', 'SSVUSDT', 'AUCTIONUSDT', 'ZETAUSDT', 'RAREUSDT', 'ARBUSDT', 'SKLUSDT', 'AXLUSDT',
+CONTRACTS = ['WIFUSDT', 'ARKUSDT', 'SLERFUSDT', 'ATAUSDT', 'ADAUSDT', 'DEGENUSDT', 'ARUSDT',
+             'MOVRUSDT', 'SSVUSDT', 'AUCTIONUSDT', 'ZETAUSDT', 'RAREUSDT', 'SKLUSDT', 'AXLUSDT',
              'SANDUSDT', 'AXSUSDT', 'SNXUSDT']  # Список контрактов
 MA_PERIOD = 200  # Период для Moving Average
 PRICE_CHANGE_THRESHOLD = 0.5  # Порог изменения цены в процентах
