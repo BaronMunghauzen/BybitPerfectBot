@@ -27,8 +27,8 @@ CONTRACTS = ['WIFUSDT', 'ARKUSDT', 'SLERFUSDT', 'ATAUSDT', 'ADAUSDT', 'DEGENUSDT
              'MOVRUSDT', 'SSVUSDT', 'AUCTIONUSDT', 'ZETAUSDT', 'RAREUSDT', 'SKLUSDT', 'AXLUSDT',
              'SANDUSDT', 'AXSUSDT', 'SNXUSDT']  # Список контрактов
 MA_PERIOD = 200  # Период для Moving Average
-PRICE_CHANGE_THRESHOLD = 0.5  # Порог изменения цены в процентах
-VOLUME_THRESHOLD = 1.2  # Порог увеличения объема (например, 1.2 = на 20% больше)
+PRICE_CHANGE_THRESHOLD = 0.1  # Порог изменения цены в процентах 0.5
+VOLUME_THRESHOLD = 1.02  # Порог увеличения объема (например, 1.2 = на 20% больше) 1.2
 RISK_PERCENTAGE = 0.1  # Риск на сделку (10% от капитала)
 STOP_LOSS_PERCENT = 0.5  # Стоп-лосс в процентах
 TAKE_PROFIT_PERCENT = 10.0  # Тейк-профит в процентах
