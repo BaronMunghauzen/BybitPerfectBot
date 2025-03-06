@@ -85,6 +85,19 @@ async def save_trade_to_db(trade_data):
         )
         await db.commit()
 
+
+def calculate_aggregated_ma(contracts, timeframe, period):
+    """Расчет агрегированного Moving Average для всех контрактов."""
+    aggregated_ma = 0
+    for contract in contracts:
+        df = fetch_ohlcv(contract, timeframe, period)
+        if df.empty:
+            print(f"Нет данных для контракта {contract}")
+            continue  # Пропускаем этот контракт
+        ma = calculate_moving_average(df, period).iloc[-1]
+        aggregated_ma += ma
+    return aggregated_ma / len(contracts)
+
 async def fetch_stats(filter_by=None, filter_value=None):
     """Получение статистики из базы данных."""
     async with aiosqlite.connect(DB_NAME) as db:
@@ -148,22 +161,31 @@ def calculate_aggregated_price_and_volume(contracts, timeframe, limit):
         prices[contract] = last_close
         aggregated_price += last_close
         aggregated_volume += last_volume
-        print()
     return aggregated_price / len(contracts), aggregated_volume / len(contracts), prices
 
 def calculate_moving_average(df, period):
     """Расчет Moving Average."""
     return df['close'].rolling(window=period).mean()
 
-def check_entry_conditions(price_change, volume_change, ma, current_price):
-    """Проверка условий для входа в сделку."""
-    if current_price > ma:
+def check_entry_conditions(aggregated_price, aggregated_ma, price_change, volume_change):
+    """
+    Проверка условий для входа в сделку.
+    Возвращает 'Buy', 'Sell' или None.
+    """
+    if aggregated_price > aggregated_ma:
         position_flag = 'Buy'  # Длинная позиция
     else:
         position_flag = 'Sell'  # Короткая позиция
 
-    if abs(price_change) > PRICE_CHANGE_THRESHOLD and volume_change > VOLUME_THRESHOLD:
-        return position_flag
+    if position_flag == 'Buy':
+        # Условие для покупки: цена закрытия - цена открытия > порог
+        if price_change > PRICE_CHANGE_THRESHOLD and volume_change > VOLUME_THRESHOLD:
+            return position_flag
+    elif position_flag == 'Sell':
+        # Условие для продажи: цена открытия - цена закрытия > порог
+        if -price_change > PRICE_CHANGE_THRESHOLD and volume_change > VOLUME_THRESHOLD:
+            return position_flag
+
     return None
 
 def place_order(contract, side, qty, entry_price):
@@ -191,18 +213,21 @@ async def trading_logic():
         # Получаем общую цену и объем
         aggregated_price, aggregated_volume, prices = calculate_aggregated_price_and_volume(CONTRACTS, TIMEFRAME, MA_PERIOD)
 
-        # Получаем данные для расчета MA
-        df = fetch_ohlcv(CONTRACTS[0], TIMEFRAME, MA_PERIOD)  # Используем первый контракт для расчета MA
-        if df.empty:
-            print(f"Нет данных для контракта {contract}")
-            return  # Пропускаем этот контракт
-        ma = calculate_moving_average(df, MA_PERIOD).iloc[-1]
+        # Рассчитываем агрегированный MA
+        aggregated_ma = calculate_aggregated_ma(CONTRACTS, TIMEFRAME, MA_PERIOD)
 
-        # Проверяем условия для входа
+        # Получаем данные для расчета изменения цены и объема
+        df = fetch_ohlcv(CONTRACTS[0], TIMEFRAME, 2)  # Берем данные для двух последних свечей
+        if df.empty:
+            print(f"Нет данных для контракта {CONTRACTS[0]}")
+            return  # Пропускаем этот контракт
+
+        # Изменение цены и объема
         price_change = (df['close'].iloc[-1] - df['open'].iloc[-1]) / df['open'].iloc[-1] * 100
         volume_change = df['volume'].iloc[-1] / df['volume'].iloc[-2]
 
-        position_flag = check_entry_conditions(price_change, volume_change, ma, aggregated_price)
+        # Проверяем условия для входа
+        position_flag = check_entry_conditions(aggregated_price, aggregated_ma, price_change, volume_change)
 
         if position_flag:
             message = f"*Условия для входа в {position_flag} позицию выполнены!*"
