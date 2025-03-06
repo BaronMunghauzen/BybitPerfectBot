@@ -143,11 +143,12 @@ def calculate_aggregated_price_and_volume(contracts, timeframe, limit):
         if df.empty:
             print(f"Нет данных для контракта {contract}")
             continue  # Пропускаем этот контракт
-        last_close = df['close'].iloc[-2]
-        last_volume = df['volume'].iloc[-2]
+        last_close = df['close'].iloc[-1]
+        last_volume = df['volume'].iloc[-1]
         prices[contract] = last_close
         aggregated_price += last_close
         aggregated_volume += last_volume
+        print()
     return aggregated_price / len(contracts), aggregated_volume / len(contracts), prices
 
 def calculate_moving_average(df, period):
