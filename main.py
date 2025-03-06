@@ -12,6 +12,7 @@ from datetime import datetime
 from pybit.unified_trading import HTTP
 import pandas as pd
 import time
+import aiocron
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -35,8 +36,8 @@ TAKE_PROFIT_PERCENT = 10.0  # Тейк-профит в процентах
 # Инициализация Bybit (демо-режим)
 session = HTTP(
     testnet=True,  # Демо-режим
-    api_key="YOUR_TESTNET_API_KEY",
-    api_secret="YOUR_TESTNET_API_SECRET"
+    api_key=BYBIT_API_KEY,
+    api_secret=BYBIT_API_SECRET
 )
 
 # Инициализация Telegram-бота
@@ -183,85 +184,80 @@ def place_order(contract, side, qty, entry_price):
     except Exception as e:
         raise e
 
-async def main():
-    await init_db()
-    while True:
-        try:
-            # Получаем общую цену и объем
-            aggregated_price, aggregated_volume, prices = calculate_aggregated_price_and_volume(CONTRACTS, TIMEFRAME, MA_PERIOD)
+async def trading_logic():
+    """Основная логика торговли."""
+    try:
+        # Получаем общую цену и объем
+        aggregated_price, aggregated_volume, prices = calculate_aggregated_price_and_volume(CONTRACTS, TIMEFRAME, MA_PERIOD)
 
-            # Получаем данные для расчета MA
-            df = fetch_ohlcv(CONTRACTS[0], TIMEFRAME, MA_PERIOD)  # Используем первый контракт для расчета MA
-            if df.empty:
-                print(f"Нет данных для контракта {contract}")
-                continue  # Пропускаем этот контракт
-            ma = calculate_moving_average(df, MA_PERIOD).iloc[-1]
+        # Получаем данные для расчета MA
+        df = fetch_ohlcv(CONTRACTS[0], TIMEFRAME, MA_PERIOD)  # Используем первый контракт для расчета MA
+        if df.empty:
+            print(f"Нет данных для контракта {contract}")
+            return  # Пропускаем этот контракт
+        ma = calculate_moving_average(df, MA_PERIOD).iloc[-1]
 
-            # Проверяем условия для входа
-            price_change = (df['close'].iloc[-1] - df['open'].iloc[-1]) / df['open'].iloc[-1] * 100
-            volume_change = df['volume'].iloc[-1] / df['volume'].iloc[-2]
+        # Проверяем условия для входа
+        price_change = (df['close'].iloc[-1] - df['open'].iloc[-1]) / df['open'].iloc[-1] * 100
+        volume_change = df['volume'].iloc[-1] / df['volume'].iloc[-2]
 
-            position_flag = check_entry_conditions(price_change, volume_change, ma, aggregated_price)
+        position_flag = check_entry_conditions(price_change, volume_change, ma, aggregated_price)
 
-            if position_flag:
-                message = f"*Условия для входа в {position_flag} позицию выполнены!*"
-                await send_telegram_message(TELEGRAM_ADMIN_ID, message)
-
-                # Получаем текущий баланс
-                balance = session.get_wallet_balance(coin="USDT")['result']['USDT']['available_balance']
-                risk_amount = float(balance) * RISK_PERCENTAGE
-
-                # Рассчитываем размер позиции для каждого контракта
-                for contract in CONTRACTS:
-                    contract_price = prices[contract]
-                    weight = contract_price / aggregated_price
-                    qty = (risk_amount * weight) / contract_price
-                    qty = round(qty, 3)  # Округляем до 3 знаков
-
-                    # Размещаем ордер
-                    try:
-                        order, stop_loss, take_profit = place_order(contract, position_flag, qty, contract_price)
-                        message = (
-                            f"Ордер размещен:\n"
-                            f"*Контракт*: {contract}\n"
-                            f"*Сторона*: {position_flag}\n"
-                            f"*Количество*: {qty}\n"
-                            f"*Цена входа*: {contract_price}\n"
-                            f"*Стоп-лосс*: {stop_loss}\n"
-                            f"*Тейк-профит*: {take_profit}"
-                        )
-                        await send_telegram_message(TELEGRAM_ADMIN_ID, message)
-
-                        # Сохраняем сделку в базу данных
-                        trade_data = {
-                            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "contract": contract,
-                            "side": position_flag,
-                            "quantity": qty,
-                            "entry_price": contract_price,
-                            "stop_loss": stop_loss,
-                            "take_profit": take_profit,
-                            "exit_price": None,  # Будет заполнено при закрытии сделки
-                            "profit_loss": None,  # Будет заполнено при закрытии сделки
-                            "volume": df['volume'].iloc[-1]
-                        }
-                        await save_trade_to_db(trade_data)
-
-                    except Exception as e:
-                        message = f"*Ошибка при размещении ордера: {e}*"
-                        await send_telegram_message(TELEGRAM_ADMIN_ID, message)
-
-            else:
-                message = "Условия для входа не выполнены."
-                await send_telegram_message(TELEGRAM_ADMIN_ID, message)
-
-            # Ожидание перед следующей итерацией
-            await asyncio.sleep(60 * TIMEFRAME)  # Ожидание таймфрейма
-
-        except Exception as e:
-            message = f"*Произошла ошибка: {e}*"
+        if position_flag:
+            message = f"*Условия для входа в {position_flag} позицию выполнены!*"
             await send_telegram_message(TELEGRAM_ADMIN_ID, message)
-            await asyncio.sleep(60)  # Ожидание перед повторной попыткой
+
+            # Получаем текущий баланс
+            balance = session.get_wallet_balance(coin="USDT")['result']['USDT']['available_balance']
+            risk_amount = float(balance) * RISK_PERCENTAGE
+
+            # Рассчитываем размер позиции для каждого контракта
+            for contract in CONTRACTS:
+                contract_price = prices[contract]
+                weight = contract_price / aggregated_price
+                qty = (risk_amount * weight) / contract_price
+                qty = round(qty, 3)  # Округляем до 3 знаков
+
+                # Размещаем ордер
+                try:
+                    order, stop_loss, take_profit = place_order(contract, position_flag, qty, contract_price)
+                    message = (
+                        f"Ордер размещен:\n"
+                        f"*Контракт*: {contract}\n"
+                        f"*Сторона*: {position_flag}\n"
+                        f"*Количество*: {qty}\n"
+                        f"*Цена входа*: {contract_price}\n"
+                        f"*Стоп-лосс*: {stop_loss}\n"
+                        f"*Тейк-профит*: {take_profit}"
+                    )
+                    await send_telegram_message(TELEGRAM_ADMIN_ID, message)
+
+                    # Сохраняем сделку в базу данных
+                    trade_data = {
+                        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "contract": contract,
+                        "side": position_flag,
+                        "quantity": qty,
+                        "entry_price": contract_price,
+                        "stop_loss": stop_loss,
+                        "take_profit": take_profit,
+                        "exit_price": None,  # Будет заполнено при закрытии сделки
+                        "profit_loss": None,  # Будет заполнено при закрытии сделки
+                        "volume": df['volume'].iloc[-1]
+                    }
+                    await save_trade_to_db(trade_data)
+
+                except Exception as e:
+                    message = f"*Ошибка при размещении ордера: {e}*"
+                    await send_telegram_message(TELEGRAM_ADMIN_ID, message)
+
+        else:
+            message = "Условия для входа не выполнены."
+            await send_telegram_message(TELEGRAM_ADMIN_ID, message)
+
+    except Exception as e:
+        message = f"*Произошла ошибка: {e}*"
+        await send_telegram_message(TELEGRAM_ADMIN_ID, message)
 
 # Клавиатура для статистики
 stats_keyboard = ReplyKeyboardBuilder()
@@ -336,6 +332,14 @@ async def overall_stats(message: types.Message):
 async def on_shutdown():
     """Закрытие сессий при завершении работы."""
     await bot.session.close()
+
+async def main():
+    await init_db()
+    # Запуск шедулера каждые 15 минут
+    aiocron.crontab('*/15 * * * *', func=trading_logic)
+
+    # Запуск бота
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     # Запуск бота
